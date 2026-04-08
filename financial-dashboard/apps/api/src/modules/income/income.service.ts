@@ -1,8 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { resolveAndVerifyFx } from '../../lib/fx.js';
-import { toArs, arsOnly } from '@fin/shared';
-import type { Currency } from '@prisma/client';
+import { toArs, arsOnly, type Currency } from '@fin/shared';
 import type { z } from 'zod';
 import type {
   createIncomeEntrySchema,

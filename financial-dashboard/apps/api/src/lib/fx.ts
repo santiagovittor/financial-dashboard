@@ -6,8 +6,7 @@
  */
 import { prisma } from './prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { findApplicableRate, toArs, arsOnly } from '@fin/shared';
-import type { Currency } from '@prisma/client';
+import { findApplicableRate, toArs, arsOnly, type Currency } from '@fin/shared';
 import type { Decimal } from '@prisma/client/runtime/library';
 
 export function decimalToNumber(d: Decimal): number {
@@ -29,7 +28,7 @@ export async function resolveFxSnapshot(
   });
 
   const applicable = findApplicableRate(
-    snapshots.map((s) => ({ effectiveDate: s.effectiveDate, rate: decimalToNumber(s.rate) })),
+    snapshots.map((s: { effectiveDate: Date; rate: Decimal }) => ({ effectiveDate: s.effectiveDate, rate: decimalToNumber(s.rate) })),
     forDate,
   );
 

@@ -15,6 +15,7 @@ import {
   type CommitmentForSummary,
 } from '@fin/shared';
 import { decimalToNumber } from '../../lib/fx.js';
+import type { Decimal } from '@prisma/client/runtime/library';
 
 export type { MonthlySummaryOutput };
 
@@ -74,7 +75,7 @@ export async function getMonthlySummary(
   ]);
 
   const fxRates = buildFxRateMap(
-    fxSnapshots.map((s) => ({
+    fxSnapshots.map((s: { effectiveDate: Date; rate: Decimal; fromCurrency: string; toCurrency: string }) => ({
       effectiveDate: s.effectiveDate,
       rate: decimalToNumber(s.rate),
       fromCurrency: s.fromCurrency,
@@ -84,13 +85,13 @@ export async function getMonthlySummary(
   );
 
   const riskMap = new Map<string, number>(
-    riskSettings.map((s) => [s.key, decimalToNumber(s.value)]),
+    riskSettings.map((s: { key: string; value: Decimal }) => [s.key, decimalToNumber(s.value)]),
   );
 
-  const activeCommitments: CommitmentForSummary[] = commitments.map((c) => ({
+  const activeCommitments: CommitmentForSummary[] = commitments.map((c: { id: string; name: string; versions: Array<{ effectiveFrom: Date; originalAmount: Decimal; originalCurrency: string }> }) => ({
     id: c.id,
     name: c.name,
-    versions: c.versions.map((v) => ({
+    versions: c.versions.map((v: { effectiveFrom: Date; originalAmount: Decimal; originalCurrency: string }) => ({
       effectiveFrom: v.effectiveFrom,
       originalAmount: decimalToNumber(v.originalAmount),
       originalCurrency: v.originalCurrency,
@@ -102,8 +103,8 @@ export async function getMonthlySummary(
     month,
     today,
     plannedIncomeArs: plan ? decimalToNumber(plan.estimatedArs) : null,
-    incomeEntriesArs: incomeEntries.map((e) => decimalToNumber(e.arsAmount)),
-    expenseEntriesArs: expenseEntries.map((e) => decimalToNumber(e.arsAmount)),
+    incomeEntriesArs: incomeEntries.map((e: { arsAmount: Decimal }) => decimalToNumber(e.arsAmount)),
+    expenseEntriesArs: expenseEntries.map((e: { arsAmount: Decimal }) => decimalToNumber(e.arsAmount)),
     debtPaymentsArs: debtPayments.map((p) => decimalToNumber(p.arsAmount)),
     activeCommitments,
     fxRates,
