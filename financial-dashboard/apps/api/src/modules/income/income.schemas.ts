@@ -3,7 +3,12 @@ import { createIncomeEntrySchema, upsertMonthlyIncomePlanSchema } from '@fin/sha
 
 export { createIncomeEntrySchema, upsertMonthlyIncomePlanSchema };
 
-export const listEntriesQuerySchema = z.object({
-  year: z.coerce.number().int().min(2020).max(2100).optional(),
-  month: z.coerce.number().int().min(1).max(12).optional(),
-});
+export const listEntriesQuerySchema = z
+  .object({
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM').optional(),
+  })
+  .transform(({ month }) => {
+    if (!month) return { year: undefined, month: undefined };
+    const [y, m] = month.split('-') as [string, string];
+    return { year: parseInt(y, 10), month: parseInt(m, 10) };
+  });
