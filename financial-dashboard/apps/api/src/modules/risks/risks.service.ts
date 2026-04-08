@@ -36,7 +36,7 @@ export async function upsertRiskSetting(
  */
 export async function seedDefaultRiskSettings(userId: string) {
   const existing = await prisma.riskSetting.findMany({ where: { userId } });
-  const existingKeys = new Set(existing.map((s) => s.key));
+  const existingKeys = new Set(existing.map((s: { key: string }) => s.key));
   const missing = Object.entries(DEFAULT_RISK_VALUES).filter(([k]) => !existingKeys.has(k));
 
   if (missing.length === 0) return;

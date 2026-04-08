@@ -105,7 +105,7 @@ export async function getMonthlySummary(
     plannedIncomeArs: plan ? decimalToNumber(plan.estimatedArs) : null,
     incomeEntriesArs: incomeEntries.map((e: { arsAmount: Decimal }) => decimalToNumber(e.arsAmount)),
     expenseEntriesArs: expenseEntries.map((e: { arsAmount: Decimal }) => decimalToNumber(e.arsAmount)),
-    debtPaymentsArs: debtPayments.map((p) => decimalToNumber(p.arsAmount)),
+    debtPaymentsArs: debtPayments.map((p: { arsAmount: Decimal }) => decimalToNumber(p.arsAmount)),
     activeCommitments,
     fxRates,
     riskSettings: riskMap,
