@@ -1,0 +1,467 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Currency {
+  ARS
+  USD
+  USDT
+}
+
+enum DebtType {
+  FIXED_INSTALLMENT
+  REVOLVING
+}
+
+enum DebtStatus {
+  ACTIVE
+  PAID_OFF
+  CANCELLED
+}
+
+enum RecurringCommitmentType {
+  EXPENSE
+  SUBSCRIPTION
+  SERVICE
+  OTHER
+}
+
+enum SourceDocumentType {
+  CREDIT_CARD_STATEMENT
+  DEBT_STATEMENT
+  INVOICE
+  CSV_EXPENSES
+  OTHER
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransactionSource {
+  MANUAL
+  DOCUMENT_IMPORT
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+// Single-owner for v1; structure is multi-user-ready.
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  googleId  String?  @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  monthlyIncomePlans    MonthlyIncomePlan[]
+  incomeEntries         IncomeEntry[]
+  exchangeRateSnapshots ExchangeRateSnapshot[]
+  expenseCategories     ExpenseCategory[]
+  expenseEntries        ExpenseEntry[]
+  recurringCommitments  RecurringCommitment[]
+  debts                 Debt[]
+  debtPayments          DebtPayment[]
+  goals                 Goal[]
+  riskSettings          RiskSetting[]
+  sourceDocuments       SourceDocument[]
+
+  @@map("users")
+}
+
+// ─── Exchange Rate Snapshots ──────────────────────────────────────────────────
+// Manual planning rates for v1. Every monetary record stores the snapshot ID
+// so the exact rate applied can always be audited.
+// toCurrency is always ARS in v1 (canonical currency).
+
+model ExchangeRateSnapshot {
+  id            String   @id @default(cuid())
+  userId        String
+  fromCurrency  Currency
+  toCurrency    Currency // always ARS for now
+  rate          Decimal  @db.Decimal(15, 6)
+  effectiveDate DateTime @db.Date
+  isManual      Boolean  @default(true)
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  incomeEntries  IncomeEntry[]
+  expenseEntries ExpenseEntry[]
+  debtPayments   DebtPayment[]
+  debts          Debt[]
+
+  @@unique([userId, fromCurrency, toCurrency, effectiveDate])
+  @@index([userId, effectiveDate])
+  @@map("exchange_rate_snapshots")
+}
+
+// ─── Income ───────────────────────────────────────────────────────────────────
+
+// A monthly income estimate set by the owner. Used as the basis for daily
+// budget calculation. Mutable (owner can revise the plan), but prior plans
+// are preserved by the unique(userId, year, month) constraint — one plan
+// per month, updated in place via upsert. Intentional: plans are not
+// append-only because they represent forward intent, not historical fact.
+
+model MonthlyIncomePlan {
+  id                String   @id @default(cuid())
+  userId            String
+  year              Int
+  month             Int // 1–12
+  estimatedOriginal Decimal  @db.Decimal(15, 4)
+  estimatedCurrency Currency
+  fxRate            Decimal  @db.Decimal(15, 6)
+  estimatedArs      Decimal  @db.Decimal(15, 4)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, year, month])
+  @@index([userId, year, month])
+  @@map("monthly_income_plans")
+}
+
+// Actual income received. Immutable once created — corrections use a new entry.
+// fxRate + arsAmount stored at time of entry (FX provenance preserved).
+
+model IncomeEntry {
+  id               String            @id @default(cuid())
+  userId           String
+  entryDate        DateTime          @db.Date
+  description      String?
+  originalAmount   Decimal           @db.Decimal(15, 4)
+  originalCurrency Currency
+  fxRate           Decimal           @db.Decimal(15, 6)
+  arsAmount        Decimal           @db.Decimal(15, 4)
+  fxSnapshotId     String?
+  source           TransactionSource @default(MANUAL)
+  sourceDocumentId String?
+  createdAt        DateTime          @default(now())
+
+  user           User                  @relation(fields: [userId], references: [id])
+  fxSnapshot     ExchangeRateSnapshot? @relation(fields: [fxSnapshotId], references: [id])
+  sourceDocument SourceDocument?       @relation(fields: [sourceDocumentId], references: [id])
+
+  @@index([userId, entryDate])
+  @@map("income_entries")
+}
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+
+model ExpenseCategory {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  color      String?
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id])
+  expenseEntries       ExpenseEntry[]
+  recurringCommitments RecurringCommitment[]
+
+  @@unique([userId, name])
+  @@map("expense_categories")
+}
+
+// Actual expense entries. Immutable once created.
+
+model ExpenseEntry {
+  id                    String            @id @default(cuid())
+  userId                String
+  entryDate             DateTime          @db.Date
+  description           String?
+  categoryId            String?
+  originalAmount        Decimal           @db.Decimal(15, 4)
+  originalCurrency      Currency
+  fxRate                Decimal           @db.Decimal(15, 6)
+  arsAmount             Decimal           @db.Decimal(15, 4)
+  fxSnapshotId          String?
+  source                TransactionSource @default(MANUAL)
+  recurringCommitmentId String?
+  sourceDocumentId      String?
+  createdAt             DateTime          @default(now())
+
+  user                User                  @relation(fields: [userId], references: [id])
+  category            ExpenseCategory?      @relation(fields: [categoryId], references: [id])
+  fxSnapshot          ExchangeRateSnapshot? @relation(fields: [fxSnapshotId], references: [id])
+  recurringCommitment RecurringCommitment?  @relation(fields: [recurringCommitmentId], references: [id])
+  sourceDocument      SourceDocument?       @relation(fields: [sourceDocumentId], references: [id])
+
+  @@index([userId, entryDate])
+  @@index([userId, categoryId])
+  @@map("expense_entries")
+}
+
+// ─── Recurring Commitments ────────────────────────────────────────────────────
+// A recurring commitment (bill, subscription, loan payment) with effective-dated
+// amount versioning. The commitment itself is the template; each version records
+// the amount valid from a given date onwards. Query the version with the latest
+// effectiveFrom ≤ target date to get the current amount.
+
+model RecurringCommitment {
+  id         String                  @id @default(cuid())
+  userId     String
+  name       String
+  type       RecurringCommitmentType @default(EXPENSE)
+  categoryId String?
+  dayOfMonth Int // 1–31; day the commitment is due each month
+  startDate  DateTime                @db.Date
+  endDate    DateTime?               @db.Date // null = ongoing
+  isActive   Boolean                 @default(true)
+  notes      String?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  user           User                         @relation(fields: [userId], references: [id])
+  category       ExpenseCategory?             @relation(fields: [categoryId], references: [id])
+  versions       RecurringCommitmentVersion[]
+  expenseEntries ExpenseEntry[]
+
+  @@index([userId, isActive])
+  @@map("recurring_commitments")
+}
+
+// Append-only. A new row is added whenever the amount changes. Never update or
+// delete. The active version for any date is: max(effectiveFrom) where
+// effectiveFrom ≤ target date.
+// arsAmount is deliberately NOT stored here — it is computed at report time
+// using the planning FX rate, because the future rate is unknown.
+
+model RecurringCommitmentVersion {
+  id               String   @id @default(cuid())
+  commitmentId     String
+  effectiveFrom    DateTime @db.Date
+  originalAmount   Decimal  @db.Decimal(15, 4)
+  originalCurrency Currency
+  notes            String?
+  createdAt        DateTime @default(now())
+
+  commitment RecurringCommitment @relation(fields: [commitmentId], references: [id])
+
+  @@unique([commitmentId, effectiveFrom])
+  @@index([commitmentId, effectiveFrom])
+  @@map("recurring_commitment_versions")
+}
+
+// ─── Debts ────────────────────────────────────────────────────────────────────
+
+model Debt {
+  id                     String     @id @default(cuid())
+  userId                 String
+  name                   String
+  type                   DebtType
+  status                 DebtStatus @default(ACTIVE)
+  // Opening balance — FX provenance recorded at the time the debt was created
+  originalPrincipal      Decimal    @db.Decimal(15, 4)
+  principalCurrency      Currency
+  fxRate                 Decimal    @db.Decimal(15, 6)
+  arsPrincipal           Decimal    @db.Decimal(15, 4)
+  fxSnapshotId           String?
+  openedAt               DateTime   @db.Date
+  dueDate                DateTime?  @db.Date
+  interestRateAnnual     Decimal?   @db.Decimal(8, 4) // e.g. 0.3500 = 35%
+  // Fixed-installment fields (null for revolving)
+  installmentCount       Int?
+  installmentAmount      Decimal?   @db.Decimal(15, 4)
+  installmentCurrency    Currency?
+  // Revolving fields (null for fixed)
+  creditLimitOriginal    Decimal?   @db.Decimal(15, 4)
+  // Running balance — updated as payments reduce it
+  currentBalanceOriginal Decimal    @db.Decimal(15, 4)
+  currentBalanceCurrency Currency
+  notes                  String?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  user          User                  @relation(fields: [userId], references: [id])
+  fxSnapshot    ExchangeRateSnapshot? @relation(fields: [fxSnapshotId], references: [id])
+  payments      DebtPayment[]
+  scheduleItems DebtScheduleItem[]
+
+  @@index([userId, status])
+  @@map("debts")
+}
+
+// Immutable once recorded.
+
+model DebtPayment {
+  id               String            @id @default(cuid())
+  debtId           String
+  userId           String
+  paymentDate      DateTime          @db.Date
+  originalAmount   Decimal           @db.Decimal(15, 4)
+  originalCurrency Currency
+  fxRate           Decimal           @db.Decimal(15, 6)
+  arsAmount        Decimal           @db.Decimal(15, 4)
+  fxSnapshotId     String?
+  isMinimumPayment Boolean           @default(false)
+  notes            String?
+  source           TransactionSource @default(MANUAL)
+  sourceDocumentId String?
+  createdAt        DateTime          @default(now())
+
+  debt           Debt                  @relation(fields: [debtId], references: [id])
+  user           User                  @relation(fields: [userId], references: [id])
+  fxSnapshot     ExchangeRateSnapshot? @relation(fields: [fxSnapshotId], references: [id])
+  sourceDocument SourceDocument?       @relation(fields: [sourceDocumentId], references: [id])
+  scheduleItem   DebtScheduleItem?
+
+  @@index([debtId, paymentDate])
+  @@index([userId, paymentDate])
+  @@map("debt_payments")
+}
+
+// Payment schedule for fixed-installment debts. Can be pre-generated from
+// installmentCount / installmentAmount or entered manually per installment.
+
+model DebtScheduleItem {
+  id                 String   @id @default(cuid())
+  debtId             String
+  installmentNumber  Int
+  dueDate            DateTime @db.Date
+  expectedAmount     Decimal  @db.Decimal(15, 4)
+  expectedCurrency   Currency
+  isPaid             Boolean  @default(false)
+  paymentId          String?  @unique
+  createdAt          DateTime @default(now())
+
+  debt    Debt         @relation(fields: [debtId], references: [id])
+  payment DebtPayment? @relation(fields: [paymentId], references: [id])
+
+  @@unique([debtId, installmentNumber])
+  @@index([debtId, isPaid])
+  @@map("debt_schedule_items")
+}
+
+// ─── Goals ────────────────────────────────────────────────────────────────────
+
+model Goal {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  targetArs   Decimal   @db.Decimal(15, 4)
+  currentArs  Decimal   @db.Decimal(15, 4) @default(0)
+  targetDate  DateTime? @db.Date
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isCompleted])
+  @@map("goals")
+}
+
+// ─── Risk Settings ────────────────────────────────────────────────────────────
+// Key-value store for user-configurable thresholds.
+// Known keys are defined as constants in @fin/shared (RISK_KEYS).
+
+model RiskSetting {
+  id          String   @id @default(cuid())
+  userId      String
+  key         String
+  value       Decimal  @db.Decimal(10, 4)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, key])
+  @@map("risk_settings")
+}
+
+// ─── Source Documents ─────────────────────────────────────────────────────────
+// Uploaded documents (credit card statements, PDFs, CSVs, etc.).
+// Raw files only — canonical finance data is never derived from these without
+// an explicit review step (see DocumentExtraction → ExtractionReview).
+
+model SourceDocument {
+  id               String             @id @default(cuid())
+  userId           String
+  originalFilename String
+  mimeType         String
+  storagePath      String // storage key / relative path; never publicly accessible
+  sizeBytes        Int
+  type             SourceDocumentType
+  checksum         String // SHA-256 of file content — deduplication guard
+  uploadedAt       DateTime           @default(now())
+
+  user           User                 @relation(fields: [userId], references: [id])
+  extractions    DocumentExtraction[]
+  incomeEntries  IncomeEntry[]
+  expenseEntries ExpenseEntry[]
+  debtPayments   DebtPayment[]
+
+  @@index([userId, uploadedAt])
+  @@map("source_documents")
+}
+
+// Output of the extraction pipeline for a document. The rawExtractedJson field
+// holds unvalidated extracted data and MUST NOT flow directly into canonical
+// tables without an approved ExtractionReview.
+
+model DocumentExtraction {
+  id               String           @id @default(cuid())
+  documentId       String
+  userId           String
+  status           ExtractionStatus @default(PENDING)
+  rawExtractedJson Json?
+  extractedAt      DateTime?
+  errorMessage     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  document SourceDocument   @relation(fields: [documentId], references: [id])
+  reviews  ExtractionReview[]
+
+  @@index([documentId])
+  @@index([userId, status])
+  @@map("document_extractions")
+}
+
+// The owner's review decision for an extraction. Only APPROVED extractions
+// may trigger creation of canonical IncomeEntry / ExpenseEntry / DebtPayment
+// records. The sourceDocumentId on those records provides the audit trail.
+
+model ExtractionReview {
+  id           String       @id @default(cuid())
+  extractionId String
+  status       ReviewStatus @default(PENDING)
+  reviewedAt   DateTime?
+  notes        String?
+  createdAt    DateTime     @default(now())
+
+  extraction DocumentExtraction @relation(fields: [extractionId], references: [id])
+
+  @@index([extractionId])
+  @@map("extraction_reviews")
+}
+
+// Sessions are managed by connect-pg-simple using its own raw SQL table.
+// The sessions table is auto-created at startup; no Prisma model needed.
