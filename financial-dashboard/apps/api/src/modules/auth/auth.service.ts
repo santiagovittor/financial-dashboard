@@ -18,17 +18,26 @@ export function configurePassport(): void {
           const email = profile.emails?.[0]?.value;
 
           if (!email) {
+            console.error('[auth] verify: Google profile returned no email; googleId present:', !!profile.id);
             return done(new Error('No email returned from Google'));
           }
 
           // Owner-only allowlist check
           if (email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
+            console.warn('[auth] verify: non-owner login attempt blocked');
             return done(null, false);
           }
 
+          console.log('[auth] verify: upserting user by email');
+
+          // Upsert by email, not googleId — the seed (and any manual user creation)
+          // may have created the owner record without a googleId. Upserting by
+          // googleId would fail with a P2002 unique constraint on email because it
+          // can't find the existing row and tries to INSERT a duplicate email.
           const user = await prisma.user.upsert({
-            where: { googleId: profile.id },
+            where: { email },
             update: {
+              googleId: profile.id,
               name: profile.displayName,
               avatarUrl: profile.photos?.[0]?.value ?? null,
             },
@@ -40,6 +49,8 @@ export function configurePassport(): void {
             },
           });
 
+          console.log('[auth] verify: upsert succeeded, user id:', user.id);
+
           const sessionUser: AuthenticatedUser = {
             id: user.id,
             email: user.email,
@@ -49,6 +60,7 @@ export function configurePassport(): void {
 
           return done(null, sessionUser);
         } catch (err) {
+          console.error('[auth] verify: unexpected error:', err instanceof Error ? err.stack : String(err));
           return done(err instanceof Error ? err : new Error(String(err)));
         }
       },
@@ -56,13 +68,18 @@ export function configurePassport(): void {
   );
 
   passport.serializeUser((user, done) => {
-    done(null, (user as AuthenticatedUser).id);
+    const id = (user as AuthenticatedUser).id;
+    console.log('[auth] serializeUser: id present:', !!id);
+    done(null, id);
   });
 
   passport.deserializeUser(async (id: string, done) => {
     try {
       const user = await prisma.user.findUnique({ where: { id } });
-      if (!user) return done(null, false);
+      if (!user) {
+        console.warn('[auth] deserializeUser: no user found for id:', id);
+        return done(null, false);
+      }
       const sessionUser: AuthenticatedUser = {
         id: user.id,
         email: user.email,
@@ -71,6 +88,7 @@ export function configurePassport(): void {
       };
       done(null, sessionUser);
     } catch (err) {
+      console.error('[auth] deserializeUser error:', err instanceof Error ? err.stack : String(err));
       done(err);
     }
   });

@@ -15,15 +15,31 @@ router.get(
 );
 
 // Google OAuth callback
+//
+// passport.authenticate's failureRedirect only fires for done(null, false).
+// When done(err) is called (e.g. DB error in verify callback), passport calls
+// next(err) which would reach the global JSON error handler — wrong for a
+// browser OAuth redirect. We intercept the next call here and redirect instead.
+const googleCallbackAuth = passport.authenticate('google', {
+  failureRedirect: `${env.FRONTEND_URL}/login?error=unauthorized`,
+  session: true,
+});
+
 router.get(
   '/google/callback',
-  passport.authenticate('google', {
-    // Redirect to frontend login page on failure (works for both dev and prod).
-    failureRedirect: `${env.FRONTEND_URL}/login?error=unauthorized`,
-    session: true,
-  }),
-  (_req, res) => {
-    // Redirect to frontend root after successful login.
+  (req, res, next) => {
+    console.log('[auth/callback] received Google callback');
+    googleCallbackAuth(req, res, (err: unknown) => {
+      if (err) {
+        console.error('[auth/callback] error during authenticate:', err instanceof Error ? err.stack : String(err));
+        res.redirect(`${env.FRONTEND_URL}/login?error=server`);
+        return;
+      }
+      next();
+    });
+  },
+  (req, res) => {
+    console.log('[auth/callback] success, user present:', !!req.user);
     res.redirect(env.FRONTEND_URL);
   },
 );
