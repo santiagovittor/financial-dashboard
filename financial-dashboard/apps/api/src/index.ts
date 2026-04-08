@@ -7,8 +7,8 @@ import { pgPool } from './lib/pgPool.js';
 async function main() {
   const app = createApp();
 
-  app.listen(env.PORT, () => {
-    console.log(`API running on http://localhost:${env.PORT}`);
+  app.listen(env.PORT, '0.0.0.0', () => {
+    console.log(`API running on http://0.0.0.0:${env.PORT}`);
     console.log(`Environment: ${env.NODE_ENV}`);
   });
 }

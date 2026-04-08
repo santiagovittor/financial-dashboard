@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @fin/shared build && pnpm --filter @fin/api build"
+
+[deploy]
+startCommand = "pnpm --filter @fin/api start"
