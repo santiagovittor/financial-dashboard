@@ -17,6 +17,10 @@ const envSchema = z
     GOOGLE_CALLBACK_URL: z.string().url('GOOGLE_CALLBACK_URL must be a valid URL'),
     OWNER_EMAIL: z.string().email('OWNER_EMAIL must be a valid email'),
     CORS_ORIGIN: z.string().default('http://localhost:5173'),
+    // Directory for uploaded document files. Defaults to ./uploads relative to
+    // the process working directory. In production, set to an absolute path or
+    // replace the file storage layer with S3 / object storage.
+    UPLOADS_DIR: z.string().default('./uploads'),
   })
   .superRefine((data, ctx) => {
     if (

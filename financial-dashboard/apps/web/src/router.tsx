@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard.js';
 import { Debts } from './pages/Debts.js';
 import { Expenses } from './pages/Expenses.js';
 import { History } from './pages/History.js';
+import { Import } from './pages/Import.js';
 import { Login } from './pages/Login.js';
 import { Projection } from './pages/Projection.js';
 import { Settings } from './pages/Settings.js';
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <Dashboard /> },
+          { path: 'import', element: <Import /> },
           { path: 'expenses', element: <Expenses /> },
           { path: 'debts', element: <Debts /> },
           { path: 'projection', element: <Projection /> },
