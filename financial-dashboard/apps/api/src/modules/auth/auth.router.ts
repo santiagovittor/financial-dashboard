@@ -16,33 +16,54 @@ router.get(
 
 // Google OAuth callback
 //
-// passport.authenticate's failureRedirect only fires for done(null, false).
-// When done(err) is called (e.g. DB error in verify callback), passport calls
-// next(err) which would reach the global JSON error handler — wrong for a
-// browser OAuth redirect. We intercept the next call here and redirect instead.
-const googleCallbackAuth = passport.authenticate('google', {
-  failureRedirect: `${env.FRONTEND_URL}/login?error=unauthorized`,
-  session: true,
-});
+// Use passport's callback form (3rd arg to authenticate) so that each step in
+// the flow — strategy verification, req.logIn, session save — has an explicit
+// log and error handler. The middleware-wrapping pattern merges all of those
+// into one opaque error path, making Railway logs useless for diagnosis.
+router.get('/google/callback', (req, res, next) => {
+  console.log('[auth/callback] entered');
 
-router.get(
-  '/google/callback',
-  (req, res, next) => {
-    console.log('[auth/callback] received Google callback');
-    googleCallbackAuth(req, res, (err: unknown) => {
+  passport.authenticate(
+    'google',
+    (err: unknown, user: AuthenticatedUser | false, _info: unknown) => {
+      // Strategy-level error: state mismatch, token exchange failure, DB error
+      // in verify callback, etc.
       if (err) {
-        console.error('[auth/callback] error during authenticate:', err instanceof Error ? err.stack : String(err));
+        console.error(
+          '[auth/callback] strategy error:',
+          err instanceof Error ? err.stack : String(err),
+        );
         res.redirect(`${env.FRONTEND_URL}/login?error=server`);
         return;
       }
-      next();
-    });
-  },
-  (req, res) => {
-    console.log('[auth/callback] success, user present:', !!req.user);
-    res.redirect(env.FRONTEND_URL);
-  },
-);
+
+      // Strategy returned false: owner allowlist check failed or no email
+      if (!user) {
+        console.warn('[auth/callback] strategy returned no user — unauthorized');
+        res.redirect(`${env.FRONTEND_URL}/login?error=unauthorized`);
+        return;
+      }
+
+      console.log('[auth/callback] strategy returned user:', user.id);
+
+      // Explicitly establish the session. In passport's callback form this is
+      // our responsibility. req.logIn serializes the user and saves the session.
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          console.error(
+            '[auth/callback] req.logIn error:',
+            loginErr instanceof Error ? loginErr.stack : String(loginErr),
+          );
+          res.redirect(`${env.FRONTEND_URL}/login?error=server`);
+          return;
+        }
+
+        console.log('[auth/callback] session established, redirecting to frontend');
+        res.redirect(env.FRONTEND_URL);
+      });
+    },
+  )(req, res, next);
+});
 
 // Current session user
 router.get('/me', (req, res) => {
