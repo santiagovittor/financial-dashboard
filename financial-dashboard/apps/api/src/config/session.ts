@@ -19,9 +19,13 @@ export function buildSessionOptions(pgPool: Pool): SessionOptions {
     cookie: {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      // 'lax' is required — 'strict' would drop the cookie on Google's OAuth
-      // callback redirect (cross-site top-level navigation), breaking login.
-      sameSite: 'lax',
+      // In production the frontend (Vercel) and API (Railway) are on different
+      // eTLD+1 domains. SameSite=Lax would block the cookie on cross-site fetch()
+      // calls (e.g. /auth/me from JS), even with credentials: 'include'. We need
+      // SameSite=None so the browser attaches the cookie on cross-origin fetches.
+      // SameSite=None requires Secure=true, which is already enforced in production.
+      // In dev we stay on 'lax' because localhost requests are same-site.
+      sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       // Set to '.yourdomain.com' via SESSION_COOKIE_DOMAIN to share the cookie
       // across subdomains (e.g. app.yourdomain.com ↔ api.yourdomain.com).

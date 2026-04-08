@@ -44,7 +44,7 @@ router.get('/google/callback', (req, res, next) => {
         return;
       }
 
-      console.log('[auth/callback] strategy returned user:', user.id);
+      console.log('[auth/callback] strategy returned user — google callback: req.user exists');
 
       // Explicitly establish the session. In passport's callback form this is
       // our responsibility. req.logIn serializes the user and saves the session.
@@ -58,8 +58,24 @@ router.get('/google/callback', (req, res, next) => {
           return;
         }
 
-        console.log('[auth/callback] session established, redirecting to frontend');
-        res.redirect(env.FRONTEND_URL);
+        console.log('[auth/callback] google callback: req.login succeeded');
+
+        // Explicitly flush the session to the store before redirecting.
+        // Without this, the browser may follow the redirect before PG has
+        // persisted the session row, causing /auth/me to return 401.
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error(
+              '[auth/callback] session save error:',
+              saveErr instanceof Error ? saveErr.stack : String(saveErr),
+            );
+            res.redirect(`${env.FRONTEND_URL}/login?error=server`);
+            return;
+          }
+
+          console.log('[auth/callback] google callback: session saved — redirecting to frontend');
+          res.redirect(env.FRONTEND_URL);
+        });
       });
     },
   )(req, res, next);
@@ -67,6 +83,10 @@ router.get('/google/callback', (req, res, next) => {
 
 // Current session user
 router.get('/me', (req, res) => {
+  console.log(
+    '[auth/me] auth/me: session id present:', !!req.sessionID,
+    '| auth/me: req.user present:', !!req.user,
+  );
   if (!req.isAuthenticated()) {
     res.status(401).json({ ok: false, error: { message: 'Not authenticated' } });
     return;

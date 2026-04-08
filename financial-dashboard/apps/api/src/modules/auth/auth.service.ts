@@ -74,12 +74,14 @@ export function configurePassport(): void {
   });
 
   passport.deserializeUser(async (id: string, done) => {
+    console.log('[auth] deserializeUser: called with id:', !!id ? '(present)' : '(missing)');
     try {
       const user = await prisma.user.findUnique({ where: { id } });
       if (!user) {
-        console.warn('[auth] deserializeUser: no user found for id:', id);
+        console.warn('[auth] deserializeUser: user found: false — no row for id');
         return done(null, false);
       }
+      console.log('[auth] deserializeUser: user found: true');
       const sessionUser: AuthenticatedUser = {
         id: user.id,
         email: user.email,
