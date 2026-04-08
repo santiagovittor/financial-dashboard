@@ -8,6 +8,7 @@ import { applyRequestLogger } from './middleware/requestLogger.js';
 import { applySecurityMiddleware } from './middleware/security.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { configurePassport } from './modules/auth/auth.service.js';
+import type { AuthenticatedUser } from './modules/auth/auth.types.js';
 import { v1 } from './routes/v1/index.js';
 
 export function createApp(): Express {
@@ -34,6 +35,13 @@ export function createApp(): Express {
   configurePassport();
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // Passport puts the deserialized user in req.user; route handlers read
+  // req.session.user, so bridge the two here once after session hydration.
+  app.use((req, _res, next) => {
+    if (req.user) req.session.user = req.user as AuthenticatedUser;
+    next();
+  });
 
   // Routes
   app.use('/api/v1', v1);
