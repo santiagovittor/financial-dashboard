@@ -3,4 +3,4 @@ builder = "nixpacks"
 buildCommand = "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @fin/shared build && pnpm --filter @fin/api db:generate && pnpm --filter @fin/api build"
 
 [deploy]
-startCommand = "pnpm --filter @fin/api start"
+startCommand = "pnpm --filter @fin/api db:migrate:deploy && pnpm --filter @fin/api start"
