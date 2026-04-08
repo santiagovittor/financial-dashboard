@@ -145,7 +145,7 @@ export async function getDailyBudget(userId: string, date: Date): Promise<DailyB
     }),
   ]);
 
-  const spentArs = sumArs(entries.map((e) => decimalToNumber(e.arsAmount)));
+  const spentArs = sumArs(entries.map((e: { arsAmount: Decimal }) => decimalToNumber(e.arsAmount)));
   const monthlyIncomeArs = plan ? decimalToNumber(plan.estimatedArs) : null;
   const dailyBudgetArs =
     monthlyIncomeArs !== null ? computeDailyBudget(monthlyIncomeArs, year, month) : null;
