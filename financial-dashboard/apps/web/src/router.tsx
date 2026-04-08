@@ -1,4 +1,5 @@
 import { createBrowserRouter } from 'react-router';
+import { RequireAuth } from './components/RequireAuth.js';
 import { AppShell } from './components/layout/AppShell.js';
 import { Dashboard } from './pages/Dashboard.js';
 import { Debts } from './pages/Debts.js';
@@ -14,15 +15,20 @@ export const router = createBrowserRouter([
     element: <Login />,
   },
   {
-    path: '/',
-    element: <AppShell />,
+    element: <RequireAuth />,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'expenses', element: <Expenses /> },
-      { path: 'debts', element: <Debts /> },
-      { path: 'projection', element: <Projection /> },
-      { path: 'history', element: <History /> },
-      { path: 'settings', element: <Settings /> },
+      {
+        path: '/',
+        element: <AppShell />,
+        children: [
+          { index: true, element: <Dashboard /> },
+          { path: 'expenses', element: <Expenses /> },
+          { path: 'debts', element: <Debts /> },
+          { path: 'projection', element: <Projection /> },
+          { path: 'history', element: <History /> },
+          { path: 'settings', element: <Settings /> },
+        ],
+      },
     ],
   },
 ]);
