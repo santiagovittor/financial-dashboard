@@ -21,9 +21,8 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
-  if (env.NODE_ENV !== 'production') {
-    console.error(err);
-  }
+  // Always log — we sanitize what we send to the client, not what we log
+  console.error(err);
 
   res.status(500).json({
     ok: false,
