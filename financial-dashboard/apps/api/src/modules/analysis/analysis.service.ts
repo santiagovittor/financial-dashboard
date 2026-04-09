@@ -41,6 +41,8 @@ export interface StoredAnalysis {
 
 // ─── Gemini client ────────────────────────────────────────────────────────────
 
+const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash';
+
 let _model: ReturnType<InstanceType<typeof GoogleGenerativeAI>['getGenerativeModel']> | null = null;
 
 function getModel() {
@@ -50,7 +52,7 @@ function getModel() {
     throw new Error('GEMINI_API_KEY is not set — narrative analysis is unavailable.');
   }
   const genAI = new GoogleGenerativeAI(apiKey);
-  _model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  _model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   return _model;
 }
 

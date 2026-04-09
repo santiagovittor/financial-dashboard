@@ -2,6 +2,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { extractedPayloadSchema, SPENDING_CATEGORIES } from './types.js';
 import type { ExtractionProvider, ExtractedPayload } from './types.js';
 
+const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash';
+
 // Lazy-initialized so the module can be imported even when the key is absent;
 // the actual error surfaces only when extraction is attempted.
 let _model: ReturnType<InstanceType<typeof GoogleGenerativeAI>['getGenerativeModel']> | null = null;
@@ -16,7 +18,7 @@ function getModel() {
     );
   }
   const genAI = new GoogleGenerativeAI(apiKey);
-  _model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  _model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   return _model;
 }
 
