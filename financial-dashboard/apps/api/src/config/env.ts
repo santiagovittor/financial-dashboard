@@ -21,6 +21,10 @@ const envSchema = z
     // the process working directory. In production, set to an absolute path or
     // replace the file storage layer with S3 / object storage.
     UPLOADS_DIR: z.string().default('./uploads'),
+    // ─── AI extraction ────────────────────────────────────────────────────────
+    // Optional. When set, PDF documents are analyzed by Gemini.
+    // Get a key at https://aistudio.google.com/app/apikey
+    GEMINI_API_KEY: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (

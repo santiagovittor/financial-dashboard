@@ -72,8 +72,14 @@ export async function uploadDocument(
   // Store file on disk
   const { storagePath, sizeBytes } = await storeFile(userId, buffer, originalFilename);
 
-  // Run extraction — returns PENDING_LLM until the Claude provider is wired in
-  const payload = await extractDocument(buffer, mimeType, docType);
+  // Run extraction — falls back to a stub payload if GEMINI_API_KEY is absent
+  let payload: Awaited<ReturnType<typeof extractDocument>> | undefined;
+  let extractionError: string | undefined;
+  try {
+    payload = await extractDocument(buffer, mimeType, docType);
+  } catch (err) {
+    extractionError = err instanceof Error ? err.message : 'Extraction failed';
+  }
 
   // Persist everything in a transaction
   const [document, extraction] = await prisma.$transaction(async (tx) => {
@@ -93,16 +99,17 @@ export async function uploadDocument(
       data: {
         documentId: doc.id,
         userId,
-        status: 'COMPLETED',
-        rawExtractedJson: payload as object,
-        extractedAt: new Date(),
+        errorMessage: extractionError ?? null,
+        ...(payload
+          ? { status: 'COMPLETED', rawExtractedJson: payload as object, extractedAt: new Date() }
+          : { status: 'FAILED' }),
       },
     });
 
     return [doc, ext] as const;
   });
 
-  return { document, extraction, payload, isDuplicate: false };
+  return { document, extraction, payload: payload ?? null, isDuplicate: false };
 }
 
 export async function getExtractions(userId: string, documentId: string) {

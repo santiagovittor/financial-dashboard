@@ -5,31 +5,67 @@ import { inputCls, Label, Spinner } from '../components/ui/shared.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type Currency = 'ARS' | 'USD' | 'USDT';
+type SpendingCategory =
+  | 'groceries'
+  | 'transport'
+  | 'dining'
+  | 'shopping'
+  | 'subscriptions'
+  | 'utilities'
+  | 'health'
+  | 'taxes_fees'
+  | 'debt_cost'
+  | 'other';
+
+interface LineItem {
+  date?: string;
+  description: string;
+  amount: number;
+  currency: Currency;
+  category?: SpendingCategory;
+  essential?: boolean;
+  recurring?: boolean;
+  installmentCurrent?: number;
+  installmentTotal?: number;
+}
+
+interface StatementSummary {
+  issuer?: string;
+  cardName?: string;
+  statementPeriod?: string;
+  closingDate?: string;
+  dueDate?: string;
+  minimumPayment?: number;
+  totalDue?: number;
+  currency?: Currency;
+  totalArs?: number;
+  totalUsd?: number;
+  taxesAndFees?: number;
+  interest?: number;
+  lineItems?: LineItem[];
+  warnings?: string[];
+}
+
+interface ExtractedIncome {
+  amount?: number;
+  currency?: Currency;
+  date?: string;
+  period?: string;
+  description?: string;
+}
+
 interface ExtractedPayload {
   version: 1;
   documentType: 'INCOME' | 'CREDIT_CARD_STATEMENT' | 'UNKNOWN';
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-  extractionMethod: 'PDF_TEXT' | 'IMAGE_ONLY' | 'UNSUPPORTED_FORMAT';
+  extractionMethod: 'GEMINI_PDF' | 'IMAGE_ONLY' | 'UNSUPPORTED_FORMAT' | 'PENDING_LLM';
   rawTextSnippet?: string;
-  income?: {
-    amount?: number;
-    currency?: 'ARS' | 'USD' | 'USDT';
-    date?: string;
-    period?: string;
-    description?: string;
-  };
-  statement?: {
-    issuer?: string;
-    closingDate?: string;
-    dueDate?: string;
-    totalDue?: number;
-    minimumPayment?: number;
-    currency?: 'ARS' | 'USD' | 'USDT';
-  };
+  income?: ExtractedIncome;
+  statement?: StatementSummary;
 }
 
 type StepId = 'upload' | 'review' | 'done';
-type Currency = 'ARS' | 'USD' | 'USDT';
 type ResolvedType = 'INCOME' | 'CREDIT_CARD_STATEMENT';
 
 interface IncomeForm {
@@ -51,6 +87,34 @@ interface StatementForm {
   fxRate: string;
   fxSnapshotId: string;
 }
+
+// ─── Category metadata ────────────────────────────────────────────────────────
+
+const CATEGORY_LABEL: Record<SpendingCategory, string> = {
+  groceries: 'Groceries',
+  transport: 'Transport',
+  dining: 'Dining',
+  shopping: 'Shopping',
+  subscriptions: 'Subscriptions',
+  utilities: 'Utilities',
+  health: 'Health',
+  taxes_fees: 'Taxes & Fees',
+  debt_cost: 'Debt Cost',
+  other: 'Other',
+};
+
+const CATEGORY_ICON: Record<SpendingCategory, string> = {
+  groceries: '🛒',
+  transport: '🚌',
+  dining: '🍽️',
+  shopping: '🛍️',
+  subscriptions: '📱',
+  utilities: '💡',
+  health: '🏥',
+  taxes_fees: '🏛️',
+  debt_cost: '💳',
+  other: '•',
+};
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
@@ -105,15 +169,9 @@ function ConfidenceBadge({ level }: { level: 'HIGH' | 'MEDIUM' | 'LOW' }) {
     MEDIUM: 'bg-amber-50 text-amber-700 border-amber-200',
     LOW: 'bg-rose-50 text-rose-700 border-rose-200',
   }[level];
-  const dot = {
-    HIGH: 'bg-emerald-500',
-    MEDIUM: 'bg-amber-400',
-    LOW: 'bg-rose-500',
-  }[level];
+  const dot = { HIGH: 'bg-emerald-500', MEDIUM: 'bg-amber-400', LOW: 'bg-rose-500' }[level];
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cls}`}
-    >
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
       {level} confidence
     </span>
@@ -126,22 +184,14 @@ function InlineError({ message, onDismiss }: { message: string; onDismiss: () =>
   return (
     <div className="flex items-start gap-3 p-3 bg-rose-50 border border-rose-200 rounded-lg">
       <span className="text-rose-700 text-sm flex-1">{message}</span>
-      <button
-        onClick={onDismiss}
-        className="text-rose-400 hover:text-rose-700 text-lg leading-none shrink-0"
-      >
-        ×
-      </button>
+      <button onClick={onDismiss} className="text-rose-400 hover:text-rose-700 text-lg leading-none shrink-0">×</button>
     </div>
   );
 }
 
-// ─── FX helper ───────────────────────────────────────────────────────────────
+// ─── FX helper ────────────────────────────────────────────────────────────────
 
-async function fetchLatestRate(
-  apiBase: string,
-  currency: Currency,
-): Promise<{ rate: string; id: string }> {
+async function fetchLatestRate(apiBase: string, currency: Currency): Promise<{ rate: string; id: string }> {
   if (currency === 'ARS') return { rate: '1', id: '' };
   try {
     const res = await fetch(`${apiBase}/api/v1/rates/latest`, { credentials: 'include' });
@@ -152,9 +202,265 @@ async function fetchLatestRate(
     const match = json.ok ? json.data.find((r) => r.fromCurrency === currency) : undefined;
     if (match) return { rate: String(match.rate), id: match.id };
   } catch {
-    // Non-fatal — user can enter the rate manually
+    /* non-fatal */
   }
   return { rate: '', id: '' };
+}
+
+// ─── Statement analysis view ──────────────────────────────────────────────────
+
+function pct(part: number, total: number) {
+  if (!total) return '0%';
+  return `${((part / total) * 100).toFixed(1)}%`;
+}
+
+function CategoryBar({ label, amount, total, icon }: { label: string; amount: number; total: number; icon: string }) {
+  const fraction = total > 0 ? Math.min(amount / total, 1) : 0;
+  return (
+    <div className="grid grid-cols-[16px_1fr_auto] items-center gap-2 text-xs">
+      <span>{icon}</span>
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between">
+          <span className="text-gray-700">{label}</span>
+          <span className="text-gray-500 ml-2">{pct(amount, total)}</span>
+        </div>
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-gray-700 rounded-full" style={{ width: `${fraction * 100}%` }} />
+        </div>
+      </div>
+      <span className="font-mono text-gray-900 text-right tabular-nums">{formatARS(amount)}</span>
+    </div>
+  );
+}
+
+function StatementAnalysisPanel({ stmt, fxRate }: { stmt: StatementSummary; fxRate: string }) {
+  const [lineItemsExpanded, setLineItemsExpanded] = useState(false);
+
+  const items = stmt.lineItems ?? [];
+  const totalDue = stmt.totalDue ?? 0;
+  const minPayment = stmt.minimumPayment ?? 0;
+  const taxesAndFees = stmt.taxesAndFees ?? 0;
+  const interest = stmt.interest ?? 0;
+
+  // Category breakdown (convert USD items to ARS for comparison)
+  const rate = parseFloat(fxRate) || 1;
+  const categoryTotals: Partial<Record<SpendingCategory, number>> = {};
+  for (const item of items) {
+    const cat = item.category ?? 'other';
+    const arsValue = item.currency === 'ARS' ? item.amount : item.amount * rate;
+    categoryTotals[cat] = (categoryTotals[cat] ?? 0) + arsValue;
+  }
+  const categorySorted = (Object.entries(categoryTotals) as Array<[SpendingCategory, number]>).sort(
+    (a, b) => b[1] - a[1],
+  );
+
+  // Essential vs discretionary
+  const essentialTotal = items
+    .filter((i) => i.essential === true)
+    .reduce((s, i) => s + (i.currency === 'ARS' ? i.amount : i.amount * rate), 0);
+  const discretionaryTotal = items
+    .filter((i) => i.essential === false)
+    .reduce((s, i) => s + (i.currency === 'ARS' ? i.amount : i.amount * rate), 0);
+  const classifiedTotal = essentialTotal + discretionaryTotal;
+
+  // Installment items
+  const installmentItems = items.filter((i) => i.installmentTotal && i.installmentTotal > 1);
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                {[stmt.issuer, stmt.cardName].filter(Boolean).join(' · ') || 'Credit card statement'}
+              </p>
+              {stmt.statementPeriod && (
+                <p className="text-xs text-gray-500 mt-0.5">{stmt.statementPeriod}</p>
+              )}
+            </div>
+          </div>
+          {(stmt.closingDate || stmt.dueDate) && (
+            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+              {stmt.closingDate && <span>Closing: <span className="text-gray-700">{stmt.closingDate}</span></span>}
+              {stmt.dueDate && <span>Due: <span className="text-gray-700">{stmt.dueDate}</span></span>}
+            </div>
+          )}
+        </div>
+
+        {/* Payment summary */}
+        <div className="border-t border-gray-100 pt-3 space-y-1.5">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Payment summary</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {totalDue > 0 && (
+              <div className="col-span-2 flex items-center justify-between">
+                <span className="text-xs text-gray-600">Total due</span>
+                <span className="font-mono text-sm font-semibold text-gray-900">{formatARS(totalDue)}</span>
+              </div>
+            )}
+            {minPayment > 0 && (
+              <div className="col-span-2 flex items-center justify-between">
+                <span className="text-xs text-gray-600">Minimum payment</span>
+                <span className="font-mono text-xs text-gray-700">{formatARS(minPayment)}</span>
+              </div>
+            )}
+            {stmt.totalArs != null && stmt.totalArs > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">ARS charges</span>
+                <span className="font-mono text-xs text-gray-600">{formatARS(stmt.totalArs)}</span>
+              </div>
+            )}
+            {stmt.totalUsd != null && stmt.totalUsd > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">USD charges</span>
+                <span className="font-mono text-xs text-gray-600">
+                  US$ {stmt.totalUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+            {taxesAndFees > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Taxes & fees</span>
+                <span className="font-mono text-xs text-amber-700">
+                  {formatARS(taxesAndFees)}
+                  {totalDue > 0 && <span className="text-gray-400 ml-1">({pct(taxesAndFees, totalDue)})</span>}
+                </span>
+              </div>
+            )}
+            {interest > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Interest</span>
+                <span className="font-mono text-xs text-rose-600">{formatARS(interest)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Spending breakdown */}
+      {categorySorted.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Spending by category</p>
+            <span className="text-xs text-gray-400">{items.length} items</span>
+          </div>
+          <div className="space-y-2.5">
+            {categorySorted.map(([cat, amount]) => (
+              <CategoryBar
+                key={cat}
+                label={CATEGORY_LABEL[cat]}
+                icon={CATEGORY_ICON[cat]}
+                amount={amount}
+                total={categorySorted.reduce((s, [, v]) => s + v, 0)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Essential vs discretionary */}
+      {classifiedTotal > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Essential vs discretionary</p>
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+            <div
+              className="h-full bg-emerald-400 rounded-l-full"
+              style={{ width: pct(essentialTotal, classifiedTotal) }}
+            />
+            <div
+              className="h-full bg-amber-400 rounded-r-full"
+              style={{ width: pct(discretionaryTotal, classifiedTotal) }}
+            />
+          </div>
+          <div className="flex items-center gap-4 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <span className="text-gray-600">Essential</span>
+              <span className="font-mono text-gray-900">{pct(essentialTotal, classifiedTotal)}</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+              <span className="text-gray-600">Discretionary</span>
+              <span className="font-mono text-gray-900">{pct(discretionaryTotal, classifiedTotal)}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Installments */}
+      {installmentItems.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Active installments</p>
+          <div className="space-y-1.5">
+            {installmentItems.map((item, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-gray-700 truncate flex-1 mr-2">{item.description}</span>
+                <span className="text-gray-400 shrink-0">
+                  {item.installmentCurrent}/{item.installmentTotal}
+                </span>
+                <span className="font-mono text-gray-900 ml-3 shrink-0">{formatARS(item.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Line items */}
+      {items.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-widest hover:bg-gray-50 transition-colors"
+            onClick={() => setLineItemsExpanded((v) => !v)}
+          >
+            <span>Line items ({items.length})</span>
+            <span className="text-gray-300">{lineItemsExpanded ? '▲' : '▼'}</span>
+          </button>
+          {lineItemsExpanded && (
+            <div className="border-t border-gray-100 divide-y divide-gray-50 max-h-72 overflow-y-auto">
+              {items.map((item, i) => (
+                <div key={i} className="flex items-start gap-3 px-5 py-2.5">
+                  <span className="text-base leading-none mt-0.5 shrink-0">
+                    {item.category ? CATEGORY_ICON[item.category] : '•'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-800 truncate">{item.description}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {item.date && <span className="text-[10px] text-gray-400">{item.date}</span>}
+                      {item.installmentTotal && item.installmentTotal > 1 && (
+                        <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {item.installmentCurrent}/{item.installmentTotal}
+                        </span>
+                      )}
+                      {item.recurring && (
+                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">recurring</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono text-xs text-gray-900">{formatARS(item.amount)}</p>
+                    {item.currency !== 'ARS' && (
+                      <p className="text-[10px] text-gray-400">{item.currency}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Warnings */}
+      {stmt.warnings && stmt.warnings.length > 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
+          <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-widest">Extraction notes</p>
+          {stmt.warnings.map((w, i) => (
+            <p key={i} className="text-xs text-amber-800">{w}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Income form fields ───────────────────────────────────────────────────────
@@ -171,9 +477,7 @@ function IncomeFormFields({
   const arsAmount = parseFloat(form.amount) * parseFloat(form.fxRate);
   return (
     <div className="space-y-3">
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
-        Income details
-      </div>
+      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Income details</div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Amount</Label>
@@ -189,11 +493,7 @@ function IncomeFormFields({
         </div>
         <div>
           <Label>Currency</Label>
-          <select
-            value={form.currency}
-            onChange={(e) => onCurrencyChange(e.target.value as Currency)}
-            className={inputCls}
-          >
+          <select value={form.currency} onChange={(e) => onCurrencyChange(e.target.value as Currency)} className={inputCls}>
             <option value="ARS">ARS</option>
             <option value="USD">USD</option>
             <option value="USDT">USDT</option>
@@ -202,12 +502,7 @@ function IncomeFormFields({
       </div>
       <div>
         <Label>Date</Label>
-        <input
-          type="date"
-          value={form.entryDate}
-          onChange={(e) => onChange({ ...form, entryDate: e.target.value })}
-          className={inputCls}
-        />
+        <input type="date" value={form.entryDate} onChange={(e) => onChange({ ...form, entryDate: e.target.value })} className={inputCls} />
       </div>
       <div>
         <Label>Description (optional)</Label>
@@ -246,9 +541,9 @@ function IncomeFormFields({
   );
 }
 
-// ─── Statement form fields ────────────────────────────────────────────────────
+// ─── Statement confirm form ───────────────────────────────────────────────────
 
-function StatementFormFields({
+function StatementConfirmForm({
   form,
   onChange,
   onCurrencyChange,
@@ -260,9 +555,10 @@ function StatementFormFields({
   const arsAmount = parseFloat(form.totalDue) * parseFloat(form.fxRate);
   return (
     <div className="space-y-3">
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
-        Statement details
-      </div>
+      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Confirm & import</div>
+      <p className="text-xs text-gray-500">
+        Review and adjust the values below. One expense entry will be created for the total due.
+      </p>
       <div>
         <Label>Card issuer</Label>
         <input
@@ -277,21 +573,11 @@ function StatementFormFields({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Closing date</Label>
-          <input
-            type="date"
-            value={form.closingDate}
-            onChange={(e) => onChange({ ...form, closingDate: e.target.value })}
-            className={inputCls}
-          />
+          <input type="date" value={form.closingDate} onChange={(e) => onChange({ ...form, closingDate: e.target.value })} className={inputCls} />
         </div>
         <div>
           <Label>Due date</Label>
-          <input
-            type="date"
-            value={form.dueDate}
-            onChange={(e) => onChange({ ...form, dueDate: e.target.value })}
-            className={inputCls}
-          />
+          <input type="date" value={form.dueDate} onChange={(e) => onChange({ ...form, dueDate: e.target.value })} className={inputCls} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -308,7 +594,7 @@ function StatementFormFields({
           />
         </div>
         <div>
-          <Label>Minimum payment (optional)</Label>
+          <Label>Minimum payment</Label>
           <input
             type="number"
             step="0.01"
@@ -323,11 +609,7 @@ function StatementFormFields({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Currency</Label>
-          <select
-            value={form.currency}
-            onChange={(e) => onCurrencyChange(e.target.value as Currency)}
-            className={inputCls}
-          >
+          <select value={form.currency} onChange={(e) => onCurrencyChange(e.target.value as Currency)} className={inputCls}>
             <option value="ARS">ARS</option>
             <option value="USD">USD</option>
             <option value="USDT">USDT</option>
@@ -367,14 +649,14 @@ export function Import() {
 
   const [step, setStep] = useState<StepId>('upload');
 
-  // Upload step state
+  // Upload step
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState('INVOICE');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Review step state
+  // Review step
   const [documentId, setDocumentId] = useState('');
   const [extractionId, setExtractionId] = useState('');
   const [payload, setPayload] = useState<ExtractedPayload | null>(null);
@@ -400,7 +682,7 @@ export function Import() {
   const [confirming, setConfirming] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
-  // Done step state
+  // Done step
   const [importedItems, setImportedItems] = useState<Array<{ type: string; id: string }>>([]);
 
   // Initialize review forms when payload / resolvedType changes
@@ -449,7 +731,6 @@ export function Import() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payload, resolvedType]);
 
-  // ─── Computed ──────────────────────────────────────────────────────────────
   const canConfirm =
     resolvedType === 'INCOME'
       ? !!(incomeForm.amount && incomeForm.entryDate && incomeForm.fxRate)
@@ -487,8 +768,6 @@ export function Import() {
       if (!json.ok) throw new Error(json.error?.message ?? 'Upload failed');
 
       const { document, extraction, isDuplicate } = json.data;
-
-      // Normalize extraction source (new vs duplicate)
       const ext =
         !isDuplicate && extraction
           ? extraction
@@ -512,10 +791,7 @@ export function Import() {
     }
   }
 
-  async function handleCurrencyChange(
-    currency: Currency,
-    which: 'income' | 'statement',
-  ) {
+  async function handleCurrencyChange(currency: Currency, which: 'income' | 'statement') {
     const { rate, id } = await fetchLatestRate(API, currency);
     if (which === 'income') {
       setIncomeForm((f) => ({ ...f, currency, fxRate: rate, fxSnapshotId: id }));
@@ -528,7 +804,6 @@ export function Import() {
     setConfirming(true);
     setReviewError(null);
     try {
-      // 1. Record approval
       const reviewRes = await fetch(
         `${API}/api/v1/documents/${documentId}/extractions/${extractionId}/review`,
         {
@@ -541,7 +816,6 @@ export function Import() {
       const reviewJson = (await reviewRes.json()) as { ok: boolean; error?: { message: string } };
       if (!reviewJson.ok) throw new Error(reviewJson.error?.message ?? 'Review failed');
 
-      // 2. Import items
       const isIncome = resolvedType === 'INCOME';
       const items = isIncome
         ? [
@@ -613,7 +887,6 @@ export function Import() {
 
   return (
     <div className="max-w-xl space-y-5">
-      {/* Step indicator */}
       <StepIndicator current={step} />
 
       {/* ── Step 1: Upload ─────────────────────────────────────────────────── */}
@@ -622,37 +895,27 @@ export function Import() {
           <div>
             <h1 className="text-sm font-semibold text-gray-900">Import a document</h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Upload an income document or credit card statement. We'll extract the key fields for
-              you to review before anything is saved.
+              Upload a credit card statement or income document. AI reads the PDF directly and
+              extracts structured data for you to review before anything is saved.
             </p>
           </div>
 
-          {uploadError && (
-            <InlineError message={uploadError} onDismiss={() => setUploadError(null)} />
-          )}
+          {uploadError && <InlineError message={uploadError} onDismiss={() => setUploadError(null)} />}
 
-          {/* Document type */}
           <div>
             <Label>Document type</Label>
-            <select
-              value={docType}
-              onChange={(e) => setDocType(e.target.value)}
-              className={inputCls}
-            >
-              <option value="INVOICE">Invoice / Pay stub</option>
+            <select value={docType} onChange={(e) => setDocType(e.target.value)} className={inputCls}>
               <option value="CREDIT_CARD_STATEMENT">Credit card statement</option>
+              <option value="INVOICE">Invoice / Pay stub</option>
               <option value="OTHER">Other</option>
             </select>
           </div>
 
-          {/* File picker */}
           <div>
-            <Label>File (PDF or CSV, max 10 MB)</Label>
+            <Label>File (PDF, max 10 MB)</Label>
             <div
               className={`relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-                file
-                  ? 'border-gray-400 bg-gray-50'
-                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                file ? 'border-gray-400 bg-gray-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
               }`}
               onClick={() => fileInputRef.current?.click()}
             >
@@ -699,7 +962,7 @@ export function Import() {
             {uploading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-3.5 h-3.5 border border-white/40 border-t-white rounded-full animate-spin" />
-                Analyzing document…
+                Analyzing with AI…
               </span>
             ) : (
               'Upload and analyze'
@@ -711,42 +974,50 @@ export function Import() {
       {/* ── Step 2: Review ─────────────────────────────────────────────────── */}
       {step === 'review' && payload && (
         <div className="space-y-4">
-          {/* Header */}
+          {/* Extraction header */}
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-gray-900">Review extracted data</h2>
+                <h2 className="text-sm font-semibold text-gray-900">AI extraction results</h2>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Check and correct the values below. Nothing is saved until you confirm.
+                  Review the extracted data. Nothing is saved until you confirm.
                 </p>
               </div>
               <ConfidenceBadge level={payload.confidence} />
             </div>
 
-            {/* Extraction method notice */}
-            {payload.extractionMethod === 'IMAGE_ONLY' && (
+            {/* Extraction not configured notice */}
+            {payload.extractionMethod === 'PENDING_LLM' && (
               <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <span className="text-amber-500 shrink-0 text-sm mt-0.5">▲</span>
                 <p className="text-xs text-amber-800">
-                  This looks like a scanned document — text extraction was not possible. Please
-                  fill in the fields manually.
+                  AI extraction is not configured. Set <code className="bg-amber-100 px-1 rounded">GEMINI_API_KEY</code> in your environment to enable automatic PDF analysis.
+                  Fill in the fields below manually.
                 </p>
               </div>
             )}
 
-            {/* Unknown type: show snippet + type selector */}
+            {/* Image-only notice */}
+            {payload.extractionMethod === 'IMAGE_ONLY' && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <span className="text-amber-500 shrink-0 text-sm mt-0.5">▲</span>
+                <p className="text-xs text-amber-800">
+                  This looks like a scanned document. Please fill in the fields manually.
+                </p>
+              </div>
+            )}
+
+            {/* Unknown type selector */}
             {payload.documentType === 'UNKNOWN' && (
               <div className="space-y-3">
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5">
-                  <p className="text-xs font-medium text-gray-600">
-                    We couldn't identify the document type automatically.
-                  </p>
-                  {payload.rawTextSnippet && (
+                {payload.rawTextSnippet && (
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <p className="text-xs font-medium text-gray-600 mb-1">Document preview</p>
                     <pre className="text-[11px] text-gray-400 whitespace-pre-wrap break-all leading-relaxed">
                       {payload.rawTextSnippet.slice(0, 300)}
                     </pre>
-                  )}
-                </div>
+                  </div>
+                )}
                 <div>
                   <Label>Select document type</Label>
                   <select
@@ -754,16 +1025,19 @@ export function Import() {
                     onChange={(e) => setResolvedType(e.target.value as ResolvedType)}
                     className={inputCls}
                   >
-                    <option value="INCOME">Income / Invoice</option>
                     <option value="CREDIT_CARD_STATEMENT">Credit card statement</option>
+                    <option value="INCOME">Income / Invoice</option>
                   </select>
                 </div>
               </div>
             )}
           </div>
 
-          {reviewError && (
-            <InlineError message={reviewError} onDismiss={() => setReviewError(null)} />
+          {reviewError && <InlineError message={reviewError} onDismiss={() => setReviewError(null)} />}
+
+          {/* Statement analysis */}
+          {(resolvedType === 'CREDIT_CARD_STATEMENT') && payload.statement && (
+            <StatementAnalysisPanel stmt={payload.statement} fxRate={stmtForm.fxRate} />
           )}
 
           {/* Form */}
@@ -775,7 +1049,7 @@ export function Import() {
                 onCurrencyChange={(c) => void handleCurrencyChange(c, 'income')}
               />
             ) : (
-              <StatementFormFields
+              <StatementConfirmForm
                 form={stmtForm}
                 onChange={setStmtForm}
                 onCurrencyChange={(c) => void handleCurrencyChange(c, 'statement')}
@@ -818,9 +1092,7 @@ export function Import() {
             </div>
             <h2 className="text-sm font-semibold text-gray-900">Import complete</h2>
             <p className="text-xs text-gray-500">
-              {importedItems.length}{' '}
-              {importedItems.length === 1 ? 'record' : 'records'} added to your financial data.
-              The dashboard and daily budget reflect the new entries.
+              {importedItems.length} {importedItems.length === 1 ? 'record' : 'records'} added to your financial data.
             </p>
           </div>
 
