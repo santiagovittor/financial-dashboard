@@ -780,7 +780,13 @@ export function Import() {
       setDocumentId(document.id);
       setExtractionId(ext.id);
 
-      const p = ext.rawExtractedJson as ExtractedPayload;
+      const p = ext.rawExtractedJson as ExtractedPayload | null;
+      if (!p) {
+        throw new Error(
+          'Extraction did not produce any data — the document could not be analysed. ' +
+            'Check that the file is a readable PDF and try again.',
+        );
+      }
       setPayload(p);
       setResolvedType(p.documentType === 'CREDIT_CARD_STATEMENT' ? 'CREDIT_CARD_STATEMENT' : 'INCOME');
       setStep('review');
