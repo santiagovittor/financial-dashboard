@@ -40,7 +40,7 @@ docker compose up -d          # start PostgreSQL 16
 6. **Historical accuracy.** Never recalculate past `arsAmount` with current rates. Preserve the original `fxSnapshotId`.
 
 ## Document Extraction Pipeline
-The heuristic (regex) extractor has been removed. The active extraction strategy uses the Claude API directly with the raw PDF buffer — no separate text extraction step needed.
+The heuristic (regex) extractor has been removed. The active extraction strategy uses Gemini directly with the raw PDF buffer — no separate text extraction step needed.
 
 - Upload → `SourceDocument` → `DocumentExtraction.rawExtractedJson` (untrusted)
 - Extraction provider interface: `apps/api/src/modules/documents/extraction/types.ts`
@@ -48,10 +48,10 @@ The heuristic (regex) extractor has been removed. The active extraction strategy
 - Extraction result stored as `rawExtractedJson`; never auto-imported
 - See domain rule 5 for the review gate requirement
 
-When implementing the Claude-based provider:
+When implementing the Gemini-based provider:
 - Use the `statement-analysis-design` skill: `/statement-analysis-design`
-- Model: `claude-haiku-4-5-20251001` for cost; upgrade to Sonnet if accuracy is insufficient
-- Validate Claude's JSON response with Zod before storing — it is untrusted input
+- Model: `gemini-2.0-flash` for cost; upgrade to `gemini-2.5-pro` if accuracy is insufficient
+- Validate Gemini's JSON response with Zod before storing — it is untrusted input
 
 ## Security Expectations
 - All routes behind `requireAuth` middleware except `/auth/*` and `/health`
