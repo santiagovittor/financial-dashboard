@@ -1,68 +1,31 @@
 /**
  * Extraction pipeline entry point.
  *
- * To swap the heuristic extractor for an LLM (Gemini, Claude, etc.):
- *   1. Implement ExtractionProvider in a new file.
- *   2. Replace `heuristicProvider` here with your provider.
- *   3. No other files need to change.
+ * The heuristic (regex) extractor has been removed.
+ * Implement a Claude-based ExtractionProvider here:
+ *   1. Create a new file (e.g. claude-provider.ts) that implements ExtractionProvider.
+ *   2. Call the Claude API with the raw PDF buffer as a document content block.
+ *   3. Validate the JSON response with Zod before returning it as ExtractedPayload.
+ *   4. Set `activeProvider` below to your new provider.
+ *
+ * See CLAUDE.md → "Document Extraction Pipeline" and use the statement-analysis-design skill.
  */
 
-import pdfParse from 'pdf-parse';
-import { extractFromText } from './heuristic.js';
-import type { ExtractedPayload, ExtractionProvider } from './types.js';
-
-export type { ExtractedPayload, ExtractionProvider };
-
-/** Heuristic provider: PDF text layer → regex extraction */
-const heuristicProvider: ExtractionProvider = {
-  async extract(text: string, docType: string): Promise<ExtractedPayload> {
-    return extractFromText(text, docType);
-  },
-};
-
-/** Active provider — replace this export to swap extraction backends. */
-export const activeProvider: ExtractionProvider = heuristicProvider;
+export type { ExtractedPayload, ExtractionProvider } from './types.js';
 
 /**
- * Extract structured data from a file buffer.
- * Returns a payload regardless of outcome — check `confidence` and
- * `extractionMethod` to determine how reliable the result is.
+ * Placeholder — returns PENDING_LLM until the Claude provider is implemented.
+ * Replace the body of this function (or set activeProvider) when the provider is ready.
  */
 export async function extractDocument(
-  buffer: Buffer,
-  mimeType: string,
-  docType: string,
-): Promise<ExtractedPayload> {
-  if (mimeType === 'application/pdf') {
-    try {
-      const parsed = await pdfParse(buffer);
-      const text = parsed.text ?? '';
-      if (text.trim().length < 50) {
-        // Very little text — likely a scanned/image-only PDF
-        return {
-          version: 1,
-          documentType: 'UNKNOWN',
-          confidence: 'LOW',
-          extractionMethod: 'IMAGE_ONLY',
-          rawTextSnippet: text.slice(0, 200),
-        };
-      }
-      return activeProvider.extract(text, docType);
-    } catch {
-      return {
-        version: 1,
-        documentType: 'UNKNOWN',
-        confidence: 'LOW',
-        extractionMethod: 'IMAGE_ONLY',
-      };
-    }
-  }
-
-  // Future: handle CSV, Excel, etc.
+  _buffer: Buffer,
+  _mimeType: string,
+  _docType: string,
+): Promise<import('./types.js').ExtractedPayload> {
   return {
     version: 1,
     documentType: 'UNKNOWN',
     confidence: 'LOW',
-    extractionMethod: 'UNSUPPORTED_FORMAT',
+    extractionMethod: 'PENDING_LLM',
   };
 }

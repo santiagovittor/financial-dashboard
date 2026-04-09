@@ -72,7 +72,7 @@ export async function uploadDocument(
   // Store file on disk
   const { storagePath, sizeBytes } = await storeFile(userId, buffer, originalFilename);
 
-  // Run extraction synchronously (heuristic — fast enough for MVP)
+  // Run extraction — returns PENDING_LLM until the Claude provider is wired in
   const payload = await extractDocument(buffer, mimeType, docType);
 
   // Persist everything in a transaction

@@ -21,7 +21,7 @@ Read, Grep, Glob
 
 4. **Zod validation coverage** — Every `router.post/put/patch` handler should call a Zod schema before any DB write. Search for handlers that access `req.body` directly without `schema.parse`.
 
-5. **Upload boundary** — In `src/modules/upload/` and `src/modules/documents/`: file type whitelist, size cap, checksum stored. `rawExtractedJson` must not flow into canonical tables without APPROVED review.
+5. **Upload boundary** — In `src/modules/documents/`: file type whitelist (MIME check in router), size cap, checksum stored on `SourceDocument`. `rawExtractedJson` must not flow into canonical tables without APPROVED review.
 
 6. **Sensitive log leakage** — Search for `console.log` / logger calls that could emit session tokens, OAuth secrets, or raw request bodies containing financial data.
 

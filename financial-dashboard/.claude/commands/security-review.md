@@ -17,9 +17,9 @@ Review the backend for common finance-app security issues. Report findings group
 - `fxSnapshotId` references validated to belong to the authenticated user?
 
 ### Upload & document boundary
-- `apps/api/src/modules/upload/` — file type, size limits enforced?
+- `apps/api/src/modules/documents/documents.router.ts` — MIME type whitelist and size limit enforced via multer?
 - `rawExtractedJson` never used to derive `arsAmount` or create canonical entries without APPROVED review?
-- Checksum stored on upload (`SourceDocument`)?
+- Checksum stored on upload (`SourceDocument.checksum`)?
 
 ### Sensitive logging
 - No `SESSION_SECRET`, `GOOGLE_CLIENT_SECRET`, or user PII in logs?
