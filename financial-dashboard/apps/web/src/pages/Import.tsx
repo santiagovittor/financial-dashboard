@@ -758,9 +758,9 @@ export function Import() {
           isDuplicate: boolean;
           document: {
             id: string;
-            extractions?: Array<{ id: string; rawExtractedJson: unknown }>;
+            extractions?: Array<{ id: string; status: string; errorMessage?: string | null; rawExtractedJson: unknown }>;
           };
-          extraction?: { id: string; rawExtractedJson: unknown };
+          extraction?: { id: string; status: string; errorMessage?: string | null; rawExtractedJson: unknown };
         };
         error?: { message: string };
       };
@@ -782,9 +782,11 @@ export function Import() {
 
       const p = ext.rawExtractedJson as ExtractedPayload | null;
       if (!p) {
+        const reason = ext.errorMessage;
         throw new Error(
-          'Extraction did not produce any data — the document could not be analysed. ' +
-            'Check that the file is a readable PDF and try again.',
+          reason
+            ? `Extraction failed: ${reason}`
+            : 'Extraction did not produce any data — the document could not be analysed. Check that the file is a readable PDF and try again.',
         );
       }
       setPayload(p);

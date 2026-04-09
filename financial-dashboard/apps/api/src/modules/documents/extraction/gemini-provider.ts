@@ -133,20 +133,74 @@ export const geminiProvider: ExtractionProvider = {
   async extract(buffer: Buffer, mimeType: string, _docType: string): Promise<ExtractedPayload> {
     const model = getModel();
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: mimeType as 'application/pdf',
-          data: buffer.toString('base64'),
+    // ── 1. Call Gemini ──────────────────────────────────────────────────────
+    let text: string;
+    try {
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            mimeType: mimeType as 'application/pdf',
+            data: buffer.toString('base64'),
+          },
         },
-      },
-      EXTRACTION_PROMPT,
-    ]);
+        EXTRACTION_PROMPT,
+      ]);
+      text = result.response.text();
+    } catch (err) {
+      throw new Error(
+        `Gemini API call failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
-    const text = result.response.text();
-    const jsonString = extractJsonObject(text);
-    const raw = stripNulls(JSON.parse(jsonString) as unknown) as unknown;
+    if (!text.trim()) {
+      throw new Error(
+        'Gemini returned an empty response — the document may be image-only, blocked by safety filters, or unreadable',
+      );
+    }
 
-    return extractedPayloadSchema.parse(raw);
+    // ── 2. Parse JSON from response ─────────────────────────────────────────
+    let raw: unknown;
+    try {
+      const jsonString = extractJsonObject(text);
+      raw = stripNulls(JSON.parse(jsonString) as unknown) as unknown;
+    } catch (err) {
+      // Log a brief prefix — never the full response (may contain sensitive data)
+      console.error(
+        '[gemini-provider] JSON parse failed. Response prefix:',
+        text.slice(0, 300),
+      );
+      throw new Error(
+        `Failed to parse Gemini response as JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // ── 3. Coerce common Gemini format deviations before schema validation ──
+    if (raw !== null && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+
+      // Gemini sometimes returns version as string "1" instead of number 1
+      if (obj['version'] === '1' || obj['version'] === 1) {
+        obj['version'] = 1;
+      }
+
+      // If model returned an unexpected extractionMethod, normalise to GEMINI_PDF
+      const knownMethods = ['GEMINI_PDF', 'IMAGE_ONLY', 'UNSUPPORTED_FORMAT', 'PENDING_LLM'];
+      if (!knownMethods.includes(obj['extractionMethod'] as string)) {
+        obj['extractionMethod'] = 'GEMINI_PDF';
+      }
+    }
+
+    // ── 4. Validate with Zod ─────────────────────────────────────────────────
+    const parsed = extractedPayloadSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .slice(0, 5)
+        .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('; ');
+      console.error('[gemini-provider] Schema validation failed:', issues);
+      throw new Error(`Gemini response failed schema validation — ${issues}`);
+    }
+
+    return parsed.data;
   },
 };
