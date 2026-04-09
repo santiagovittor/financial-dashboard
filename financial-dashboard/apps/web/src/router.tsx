@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router';
 import { RequireAuth } from './components/RequireAuth.js';
 import { AppShell } from './components/layout/AppShell.js';
+import { Analysis } from './pages/Analysis.js';
 import { Dashboard } from './pages/Dashboard.js';
 import { Debts } from './pages/Debts.js';
 import { Expenses } from './pages/Expenses.js';
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <Dashboard /> },
+          { path: 'analysis', element: <Analysis /> },
           { path: 'import', element: <Import /> },
           { path: 'expenses', element: <Expenses /> },
           { path: 'debts', element: <Debts /> },

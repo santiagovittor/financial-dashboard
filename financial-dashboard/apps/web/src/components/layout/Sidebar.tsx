@@ -2,6 +2,7 @@ import { NavLink } from 'react-router';
 
 const NAV_ITEMS: Array<{ to: string; label: string; end?: boolean }> = [
   { to: '/', label: 'Dashboard', end: true },
+  { to: '/analysis', label: 'Insights' },
   { to: '/import', label: 'Import documents' },
   { to: '/expenses', label: 'Expenses' },
   { to: '/debts', label: 'Debts' },

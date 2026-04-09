@@ -9,6 +9,7 @@ import { goalsRouter } from '../../modules/goals/goals.router.js';
 import { risksRouter } from '../../modules/risks/risks.router.js';
 import { documentsRouter } from '../../modules/documents/documents.router.js';
 import { budgetRouter } from '../../modules/budget/budget.router.js';
+import { analysisRouter } from '../../modules/analysis/analysis.router.js';
 import { healthRouter } from './health.js';
 import { requireAuth } from '../../middleware/requireAuth.js';
 
@@ -33,5 +34,6 @@ v1.use('/goals', goalsRouter);
 v1.use('/risks', risksRouter);
 v1.use('/documents', documentsRouter);
 v1.use('/budget', budgetRouter);
+v1.use('/analysis', analysisRouter);
 
 export { v1 };

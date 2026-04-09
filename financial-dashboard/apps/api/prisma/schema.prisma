@@ -82,6 +82,7 @@ model User {
   goals                 Goal[]
   riskSettings          RiskSetting[]
   sourceDocuments       SourceDocument[]
+  financialAnalysis     FinancialAnalysis?
 
   @@map("users")
 }
@@ -461,6 +462,25 @@ model ExtractionReview {
 
   @@index([extractionId])
   @@map("extraction_reviews")
+}
+
+// ─── Financial Analysis ───────────────────────────────────────────────────────
+// Stores the most recent AI-generated narrative analysis per user.
+// One row per user (upserted). Staleness is detected by comparing
+// dataUpdatedAt (max canonical record timestamp at generation time) against
+// the current max timestamp of the user's canonical tables.
+
+model FinancialAnalysis {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  coversPeriod  String   // YYYY-MM of the primary month analysed
+  narrative     String   // AI-generated sections as JSON string
+  generatedAt   DateTime @default(now())
+  dataUpdatedAt DateTime // max(createdAt) across canonical records at generation time
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("financial_analyses")
 }
 
 // Sessions are managed by connect-pg-simple using its own raw SQL table.
